@@ -100,10 +100,14 @@ def list_files() -> list[dict]:
             if "gender" not in meta_val:
                 meta_val["gender"] = "Male"
                 dirty = True
+            if "speaker" not in meta_val:
+                meta_val["speaker"] = ""
+                dirty = True
             label = str(meta_val.get("label") or "")
             verified = bool(meta_val.get("verified") or False)
             lang = str(meta_val.get("lang") or "Khmer")
             gender = str(meta_val.get("gender") or "Male")
+            speaker = str(meta_val.get("speaker") or "")
             # Keep size/date in metadata as well
             if meta_val.get("size_h") != size_h:
                 meta_val["size_h"] = size_h
@@ -120,6 +124,7 @@ def list_files() -> list[dict]:
                 "verified": verified,
                 "lang": lang,
                 "gender": gender,
+                "speaker": speaker,
                 "size_h": meta_val.get("size_h", size_h),
                 "size_bytes": meta_val.get("size_bytes", stat.st_size),
                 "mtime_iso": meta_val.get("mtime_iso", mtime_iso),
@@ -131,6 +136,7 @@ def list_files() -> list[dict]:
                 "verified": False,
                 "lang": "Khmer",
                 "gender": "Male",
+                "speaker": "",
                 "size_h": size_h,
                 "size_bytes": stat.st_size,
                 "mtime_iso": mtime_iso,
@@ -142,6 +148,7 @@ def list_files() -> list[dict]:
                 "verified": False,
                 "lang": "Khmer",
                 "gender": "Male",
+                "speaker": "",
                 "size_h": size_h,
                 "size_bytes": stat.st_size,
                 "mtime_iso": mtime_iso,
@@ -157,6 +164,7 @@ def list_files() -> list[dict]:
             "verified": verified,
             "lang": lang,
             "gender": gender,
+            "speaker": speaker if 'speaker' in locals() else "",
         })
     # Default: most recent first
     items.sort(key=lambda x: x["mtime"], reverse=True)
@@ -196,6 +204,7 @@ def home() -> str:
             <td class=\"size\">{f['size_h']}</td>
             <td class=\"date\">{f['mtime_iso']}</td>
             <td class=\"label\"><span class=\"label-text\" data-filename=\"{f['name']}\">{display_label}</span></td>
+            <td class=\"speaker\"><span class=\"speaker-text\" data-filename=\"{f['name']}\">{(f.get('speaker') or '') or 'None'}</span> <button class=\"btn btn-icon btn-speaker\" title=\"Pick speaker\" aria-label=\"Pick speaker\">▾</button></td>
             <td class=\"lang\"><select class=\"lang-select\" data-filename=\"{f['name']}\">
               <option value=\"Khmer\"{kh_sel}>Khmer</option>
               <option value=\"English\"{en_sel}>English</option>
@@ -211,7 +220,7 @@ def home() -> str:
         rows.append(row)
 
     table_rows = "\n".join(rows) if rows else """
-        <tr><td colspan=\"7\" class=\"empty\">No files uploaded yet.</td></tr>
+        <tr><td colspan=\"9\" class=\"empty\">No files uploaded yet.</td></tr>
     """
 
     return f"""
@@ -284,6 +293,7 @@ def home() -> str:
     .btn-verify[data-verified=\"false\"] {{ background: rgba(139,92,246,0.15); border-color: rgba(139,92,246,0.5); color: #8b5cf6; }}
     .btn-download {{ background: rgba(34,211,238,0.15); border-color: rgba(34,211,238,0.5); color: #22d3ee; text-decoration: none; display: inline-block; }}
     .btn-small {{ padding: 2px 6px; font-size: 12px; }}
+    .btn-icon {{ padding: 2px 6px; font-size: 12px; background: rgba(139,92,246,0.15); border-color: rgba(139,92,246,0.5); color: #8b5cf6; }}
     .eq {{ display: none; margin-left: 8px; vertical-align: middle; }}
     .name.playing .eq {{ display: inline-flex; gap: 2px; }}
     .eq i {{ display: inline-block; width: 3px; height: 10px; background: var(--primary); animation: bounce 0.8s infinite ease-in-out; }}
@@ -353,6 +363,7 @@ def home() -> str:
                 <th>Size</th>
                 <th>Date</th>
                 <th>Label</th>
+                <th>Speaker</th>
                 <th>Language</th>
                 <th>Gender</th>
                 <th>Verify</th>
@@ -506,6 +517,40 @@ def home() -> str:
       }}
     }});
 
+    // Speaker dropdown picker
+    tbody.addEventListener('click', (e) => {{
+      const btn = e.target.closest('.btn-speaker');
+      if (!btn) return;
+      const td = btn.closest('td');
+      const span = td.querySelector('.speaker-text');
+      const filename = span.dataset.filename;
+      // Gather existing speakers from table
+      const options = Array.from(document.querySelectorAll('.speaker-text'))
+        .map(x => x.textContent.trim())
+        .filter(v => v && v.toLowerCase() !== 'none');
+      const uniq = Array.from(new Set(options));
+      const sel = document.createElement('select');
+      sel.className = 'label-input';
+      const noneOpt = document.createElement('option');
+      noneOpt.value = '';
+      noneOpt.textContent = 'None';
+      sel.appendChild(noneOpt);
+      uniq.forEach(v => {{ const o = document.createElement('option'); o.value = v; o.textContent = v; sel.appendChild(o); }});
+      td.insertBefore(sel, btn);
+      sel.addEventListener('change', () => {{
+        const value = sel.value.trim();
+        fetch('/speaker', {{
+          method: 'POST',
+          headers: {{ 'Content-Type': 'application/json' }},
+          body: JSON.stringify({{ filename, speaker: value }})
+        }})
+        .then(r => r.ok ? r.json() : Promise.reject())
+        .then(data => {{ span.textContent = (data && data.speaker) || 'None'; }})
+        .finally(() => sel.remove());
+      }});
+      sel.focus();
+    }});
+
     // Click file name to play/pause
     tbody.addEventListener('click', (e) => {{
       const link = e.target.closest('.file-link');
@@ -532,46 +577,87 @@ def home() -> str:
     // Inline edit: double-click label to edit and save
     tbody.addEventListener('dblclick', (e) => {{
       // label editing
-      const span = e.target.closest('.label-text');
-      if (span) {{
-      const td = span.parentElement;
-      const filename = span.dataset.filename;
-      const current = span.textContent === 'None' ? '' : span.textContent;
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.value = current;
-      input.className = 'label-input';
-      input.maxLength = 200;
-      td.replaceChild(input, span);
-      input.focus();
-      input.select();
+      const lspan = e.target.closest('.label-text');
+      if (lspan) {{
+        const td = lspan.parentElement;
+        const filename = lspan.dataset.filename;
+        const current = lspan.textContent === 'None' ? '' : lspan.textContent;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = current;
+        input.className = 'label-input';
+        input.maxLength = 200;
+        td.replaceChild(input, lspan);
+        input.focus();
+        input.select();
 
-      const restore = (text) => {{
-        const s = document.createElement('span');
-        s.className = 'label-text';
-        s.dataset.filename = filename;
-        s.textContent = text || 'None';
-        td.replaceChild(s, input);
-      }};
+        const restore = (text) => {{
+          const s = document.createElement('span');
+          s.className = 'label-text';
+          s.dataset.filename = filename;
+          s.textContent = text || 'None';
+          td.replaceChild(s, input);
+        }};
 
-      const commit = () => {{
-        const value = input.value.trim();
-        fetch('/label', {{
-          method: 'POST',
-          headers: {{ 'Content-Type': 'application/json' }},
-          body: JSON.stringify({{ filename, label: value }})
-        }})
-        .then(r => r.ok ? r.json() : Promise.reject())
-        .then(data => restore((data && data.label) || 'None'))
-        .catch(() => restore(current));
-      }};
+        const commit = () => {{
+          const value = input.value.trim();
+          fetch('/label', {{
+            method: 'POST',
+            headers: {{ 'Content-Type': 'application/json' }},
+            body: JSON.stringify({{ filename, label: value }})
+          }})
+          .then(r => r.ok ? r.json() : Promise.reject())
+          .then(data => restore((data && data.label) || 'None'))
+          .catch(() => restore(current));
+        }};
 
-      input.addEventListener('keydown', (ev) => {{
-        if (ev.key === 'Enter') commit();
-        if (ev.key === 'Escape') restore(current);
-      }});
-      input.addEventListener('blur', commit);
-      return;
+        input.addEventListener('keydown', (ev) => {{
+          if (ev.key === 'Enter') commit();
+          if (ev.key === 'Escape') restore(current);
+        }});
+        input.addEventListener('blur', commit);
+        return;
+      }}
+      // speaker editing
+      const sspan = e.target.closest('.speaker-text');
+      if (sspan) {{
+        const td = sspan.parentElement;
+        const filename = sspan.dataset.filename;
+        const current = sspan.textContent === 'None' ? '' : sspan.textContent;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = current;
+        input.className = 'label-input';
+        input.maxLength = 200;
+        td.insertBefore(input, sspan);
+        td.removeChild(sspan);
+        input.focus();
+        input.select();
+        const restore = (text) => {{
+          const s = document.createElement('span');
+          s.className = 'speaker-text';
+          s.dataset.filename = filename;
+          s.textContent = text || 'None';
+          td.insertBefore(s, td.firstChild);
+          if (input && input.parentElement) input.parentElement.removeChild(input);
+        }};
+        const commit = () => {{
+          const value = input.value.trim();
+          fetch('/speaker', {{
+            method: 'POST',
+            headers: {{ 'Content-Type': 'application/json' }},
+            body: JSON.stringify({{ filename, speaker: value }})
+          }})
+          .then(r => r.ok ? r.json() : Promise.reject())
+          .then(data => restore((data && data.speaker) || 'None'))
+          .catch(() => restore(current));
+        }};
+        input.addEventListener('keydown', (ev) => {{
+          if (ev.key === 'Enter') commit();
+          if (ev.key === 'Escape') restore(current);
+        }});
+        input.addEventListener('blur', commit);
+        return;
       }}
     }});
 
@@ -685,10 +771,12 @@ async def upload_outside(
     language: str = Form("Khmer"),
     gender: str | None = Form(None),
     verified: bool = Form(False),
+    speaker: str | None = Form(None),
 ):
     # Validate language and gender
     lang = language if language in {"Khmer", "English", "Mix-Both"} else "Khmer"
     gen = gender if gender in {"Male", "Female"} else "None"
+    spk = speaker or ""
 
     # Determine next sequential index (six digits)
     existing_nums: list[int] = []
@@ -739,6 +827,7 @@ async def upload_outside(
         "verified": bool(verified),
         "lang": lang,
         "gender": gen,
+        "speaker": spk,
         "size_h": _human_size(stat.st_size),
         "size_bytes": stat.st_size,
         "mtime_iso": mtime_iso,
@@ -756,6 +845,7 @@ async def upload_outside(
         "lang": lang,
         "gender": gen,
         "verified": bool(verified),
+        "speaker": spk,
         "size_bytes": stat.st_size,
         "mtime_iso": mtime_iso,
     }
@@ -823,6 +913,44 @@ async def set_label(payload: dict = Body(...)):
     except Exception:
         return {"ok": False, "error": "Failed to write metadata"}
     return {"ok": True, "label": label or "None"}
+
+
+@app.post("/speaker")
+async def set_speaker(payload: dict = Body(...)):
+    filename = str(payload.get("filename") or "").strip()
+    speaker = str(payload.get("speaker") or "").strip()
+    safe = _safe_filename(filename)
+    path = (UPLOAD_DIR / safe)
+    if not path.exists() or not path.is_file():
+        return {"ok": False, "error": "File not found"}
+    data: dict[str, dict] = {}
+    if METADATA_PATH.exists():
+        try:
+            data = json.loads(METADATA_PATH.read_text())
+        except Exception:
+            data = {}
+    entry = data.get(safe) or {}
+    entry_label = str(entry.get("label") or "")
+    entry_verified = bool(entry.get("verified") or False)
+    entry_lang = str(entry.get("lang") or "Khmer")
+    entry_gender = str(entry.get("gender") or "Male")
+    stat = path.stat()
+    mtime_iso = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+    data[safe] = {
+        "label": entry_label,
+        "verified": entry_verified,
+        "lang": entry_lang,
+        "gender": entry_gender,
+        "speaker": speaker,
+        "size_h": _human_size(stat.st_size),
+        "size_bytes": stat.st_size,
+        "mtime_iso": mtime_iso,
+    }
+    try:
+        METADATA_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+    except Exception:
+        return {"ok": False, "error": "Failed to write metadata"}
+    return {"ok": True, "speaker": speaker or "None"}
 
 
 @app.post("/verify")
