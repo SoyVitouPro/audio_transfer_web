@@ -8,20 +8,76 @@ import mimetypes
 from typing import List
 from datetime import datetime
 
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, Response
 from fastapi import Body
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 
 
 APP_TITLE = "ASRKH10k Dataset"
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 METADATA_PATH = UPLOAD_DIR / "metadata.json"
+SPEAKER_META_PATH = UPLOAD_DIR / "speakermeta.json"
 ALLOWED_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".opus", ".wma", ".aiff"}
 
 app = FastAPI(title=APP_TITLE)
 app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+
+
+def _load_speaker_meta() -> list[dict]:
+    try:
+        if SPEAKER_META_PATH.exists():
+            data = json.loads(SPEAKER_META_PATH.read_text())
+            if isinstance(data, list):
+                meta = []
+                for x in data:
+                    if isinstance(x, dict):
+                        meta.append({
+                            "name": str(x.get("name", "")),
+                            "gender": str(x.get("gender", "")),
+                            "lang": str(x.get("lang", "")),
+                        })
+                    elif isinstance(x, (str, int)):
+                        meta.append({"name": str(x), "gender": "", "lang": ""})
+                return meta
+    except Exception:
+        pass
+    return []
+
+
+def _save_speaker_meta(items: list[dict]) -> None:
+    try:
+        SPEAKER_META_PATH.write_text(json.dumps(items, ensure_ascii=False, indent=2))
+    except Exception:
+        pass
+
+
+def _load_speakers() -> list[str]:
+    return [m.get("name", "") for m in _load_speaker_meta() if m.get("name")]
+
+
+def _touch_speaker(name: str) -> None:
+    name = (name or "").strip()
+    if not name:
+        return
+    meta = _load_speaker_meta()
+    meta = [m for m in meta if m.get("name") != name]
+    meta.insert(0, {"name": name, "gender": "", "lang": ""})
+    _save_speaker_meta(meta[:100])
+
+
+def _touch_speaker_with_meta(name: str, gender: str = "", lang: str = "") -> None:
+    name = (name or "").strip()
+    if not name:
+        return
+    meta = _load_speaker_meta()
+    # remove existing
+    meta = [m for m in meta if m.get("name") != name]
+    meta.insert(0, {"name": name, "gender": gender, "lang": lang})
+    _save_speaker_meta(meta[:100])
 
 
 def _human_size(num_bytes: int) -> str:
@@ -178,508 +234,27 @@ def list_files() -> list[dict]:
 
 
 @app.get("/", response_class=HTMLResponse)
-def home() -> str:
+def home(request: Request):
     files = list_files()
-    rows = []
-    for f in files:
-        display_label = f["label"] if f["label"] else "None"
-        verified = f.get("verified", False)
-        v_text = "Verified" if verified else "Verify"
-        v_state = "true" if verified else "false"
-        # compute select attrs
-        lang = f.get("lang", "Khmer")
-        kh_sel = " selected" if lang == "Khmer" else ""
-        en_sel = " selected" if lang == "English" else ""
-        mix_sel = " selected" if lang == "Mix-Both" else ""
-        gender = f.get("gender", "Male")
-        male_sel = " selected" if gender == "Male" else ""
-        female_sel = " selected" if gender == "Female" else ""
-        row = f"""
-        <tr class=\"file-row\" data-name=\"{f['name']}\" data-size=\"{f['size']}\" data-time=\"{int(f['mtime'])}\" data-verified=\"{v_state}\">
-            <td class=\"name\">
-              <a class=\"file-link\" href=\"#\" data-filename=\"{f['name']}\">{f['name']}</a>
-              <span class=\"eq\" aria-hidden=\"true\"><i></i><i></i><i></i></span>
-            </td>
-            <td class=\"down\"><a class=\"btn btn-download btn-small\" href=\"/download/{f['name']}\" download title=\"Download\" aria-label=\"Download\">⬇</a></td>
-            <td class=\"size\">{f['size_h']}</td>
-            <td class=\"date\">{f['mtime_iso']}</td>
-            <td class=\"label\"><span class=\"label-text\" data-filename=\"{f['name']}\">{display_label}</span></td>
-            <td class=\"speaker\"><span class=\"speaker-text\" data-filename=\"{f['name']}\">{(f.get('speaker') or '') or 'None'}</span> <button class=\"btn btn-icon btn-speaker\" title=\"Pick speaker\" aria-label=\"Pick speaker\">▾</button></td>
-            <td class=\"lang\"><select class=\"lang-select\" data-filename=\"{f['name']}\">
-              <option value=\"Khmer\"{kh_sel}>Khmer</option>
-              <option value=\"English\"{en_sel}>English</option>
-              <option value=\"Mix-Both\"{mix_sel}>Mix-Both</option>
-            </select></td>
-            <td class=\"gender\"><select class=\"gender-select\" data-filename=\"{f['name']}\">
-              <option value=\"Male\"{male_sel}>Male</option>
-              <option value=\"Female\"{female_sel}>Female</option>
-            </select></td>
-            <td class=\"verify\"><button class=\"btn btn-verify\" data-filename=\"{f['name']}\" data-verified=\"{v_state}\">{v_text}</button></td>
-        </tr>
-        """
-        rows.append(row)
+    speakers_list = _load_speakers()
+    total_count = len(files)
+    total_bytes = sum(f.get("size", 0) for f in files)
+    verified_count = sum(1 for f in files if f.get("verified"))
+    speakers_set = {(f.get("speaker") or "").strip() for f in files}
+    speakers_set.discard("")
+    stats_text = f"\" Audio ~ {total_count} records, {len(speakers_set)} speakers, {verified_count} verified, {_human_size(total_bytes)} \""
 
-    table_rows = "\n".join(rows) if rows else """
-        <tr><td colspan=\"9\" class=\"empty\">No files uploaded yet.</td></tr>
-    """
-
-    return f"""
-<!doctype html>
-<html lang=\"en\">
-<head>
-  <meta charset=\"utf-8\" />
-  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-  <title>{APP_TITLE}</title>
-  <link rel=\"icon\" type=\"image/png\" href=\"/static/chlat.png\" />
-  <style>
-    :root {{
-      --bg: #0f172a;        /* slate-900 */
-      --panel: #111827;     /* gray-900 */
-      --panel-2: #0b1220;   /* darker */
-      --text: #e5e7eb;      /* gray-200 */
-      --muted: #9ca3af;     /* gray-400 */
-      --primary: #22d3ee;   /* cyan-400 */
-      --accent: #8b5cf6;    /* violet-500 */
-      --ok: #10b981;        /* emerald-500 */
-      --warn: #f59e0b;      /* amber-500 */
-      --danger: #ef4444;    /* red-500 */
-      --border: #1f2937;    /* gray-800 */
-    }}
-    * {{ box-sizing: border-box; }}
-    html, body {{ height: 100%; }}
-    body {{ margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, \"Apple Color Emoji\", \"Segoe UI Emoji\"; background: linear-gradient(180deg, var(--bg), var(--panel-2)); color: var(--text); }}
-    header {{ padding: 24px 16px 8px; text-align: center; }}
-    header h1 {{ margin: 0; font-size: 24px; letter-spacing: 0.4px; display:inline-flex; align-items:center; gap:10px; }}
-    header p {{ margin: 6px 0 0; color: var(--muted); }}
-    .logo {{ width:40px; height:40px; border-radius:8px; object-fit:contain; background: transparent; display:inline-block; }}
-
-    .container {{ max-width: 1400px; margin: 0 auto; padding: 16px; }}
-
-    .card {{ background: rgba(17,24,39,0.8); border: 1px solid var(--border); border-radius: 12px; padding: 16px; box-shadow: 0 6px 24px rgba(0,0,0,0.3); width: 100%; max-width: 1280px; }}
-    .row {{ display: grid; grid-template-columns: 1fr; gap: 16px; justify-items: center; }}
-    @media (max-width: 900px) {{ .row {{ grid-template-columns: 1fr; }} }}
-
-    /* Upload */
-    .upload {{ display: flex; align-items: center; gap: 12px; background: linear-gradient(135deg, rgba(34,211,238,0.08), rgba(139,92,246,0.08)); border: 1px dashed rgba(34,211,238,0.35); padding: 16px; border-radius: 10px; }}
-    .upload input[type=file] {{ flex: 1; padding: 10px; color: var(--text); background: #0b1220; border: 1px solid var(--border); border-radius: 8px; }}
-    .upload button {{ padding: 10px 14px; border: 0; border-radius: 8px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #04121a; font-weight: 700; cursor: pointer; transition: transform .05s ease; }}
-    .upload button:hover {{ transform: translateY(-1px); }}
-
-    /* Controls */
-    .controls {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }}
-    @media (max-width: 900px) {{ .controls {{ grid-template-columns: 1fr; }} }}
-    .control label {{ display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }}
-    .control input, .control select {{ width: 100%; background: #0b1220; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }}
-    .lang-select, .gender-select {{ background: #0b1220; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 6px; }}
-
-    /* Table */
-    .table-wrap {{ overflow: auto; border: 1px solid var(--border); border-radius: 10px; margin-top: 12px; }}
-    table {{ width: 100%; border-collapse: collapse; min-width: 1000px; }}
-    th, td {{ padding: 12px 14px; border-bottom: 1px solid var(--border); }}
-    thead th {{ position: sticky; top: 0; background: #0b1220; color: var(--muted); text-align: left; font-weight: 600; font-size: 13px; }}
-    tbody tr:hover {{ background: rgba(34,211,238,0.06); }}
-    td.name a {{ color: var(--primary); text-decoration: none; }}
-    td.name a:hover {{ text-decoration: underline; }}
-    td.empty {{ text-align: center; color: var(--muted); padding: 28px; }}
-
-    /* Search bar */
-    .search-bar {{ margin-top: 14px; background: rgba(11,18,32,0.92); border: 1px solid var(--border); border-radius: 10px; backdrop-filter: blur(6px); padding: 12px; display: flex; gap: 10px; align-items: center; }}
-    .search-bar input {{ flex: 1; background: #0b1220; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }}
-    .label-text {{ cursor: text; padding: 2px 6px; border-radius: 6px; }}
-    .label-text:hover {{ background: rgba(139,92,246,0.15); }}
-    .label-input {{ width: 100%; background: #0b1220; color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px; }}
-    .btn {{ font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); background: #0b1220; color: var(--text); cursor: pointer; }}
-    .btn-verify[data-verified=\"true\"] {{ background: rgba(16,185,129,0.15); border-color: rgba(16,185,129,0.5); color: #10b981; }}
-    .btn-verify[data-verified=\"false\"] {{ background: rgba(139,92,246,0.15); border-color: rgba(139,92,246,0.5); color: #8b5cf6; }}
-    .btn-download {{ background: rgba(34,211,238,0.15); border-color: rgba(34,211,238,0.5); color: #22d3ee; text-decoration: none; display: inline-block; }}
-    .btn-small {{ padding: 2px 6px; font-size: 12px; }}
-    .btn-icon {{ padding: 2px 6px; font-size: 12px; background: rgba(139,92,246,0.15); border-color: rgba(139,92,246,0.5); color: #8b5cf6; }}
-    .eq {{ display: none; margin-left: 8px; vertical-align: middle; }}
-    .name.playing .eq {{ display: inline-flex; gap: 2px; }}
-    .eq i {{ display: inline-block; width: 3px; height: 10px; background: var(--primary); animation: bounce 0.8s infinite ease-in-out; }}
-    .eq i:nth-child(2) {{ animation-delay: 0.1s; }}
-    .eq i:nth-child(3) {{ animation-delay: 0.2s; }}
-    @keyframes bounce {{
-      0%, 100% {{ transform: scaleY(0.4); opacity: 0.6; }}
-      50% {{ transform: scaleY(1); opacity: 1; }}
-    }}
-    .pagination-bar {{ margin-top: 10px; display: flex; align-items: center; gap: 10px; color: var(--muted); justify-content: center; }}
-    .pagination-bar .btn {{ padding: 6px 10px; }}
-    .badge {{ display: inline-block; background: rgba(34,211,238,0.1); color: var(--primary); border: 1px solid rgba(34,211,238,0.3); font-size: 12px; padding: 2px 8px; border-radius: 999px; }}
-    footer {{ text-align: center; color: var(--muted); padding: 16px 0; font-size: 12px; }}
-  </style>
-</head>
-<body>
-  <header>
-    <h1><img class=\"logo\" src=\"/static/chlat.png\" alt=\"logo\" />{APP_TITLE}</h1>
-    <p>"Data is the foundation of Deep Learning, no data no Deep Learning"</p>
-  </header>
-  <div class=\"container\">
-    <div class=\"row\">
-      <section class=\"card\">
-        <form class=\"upload\" action=\"/upload\" method=\"post\" enctype=\"multipart/form-data\">
-          <input type=\"file\" name=\"files\" id=\"file\" accept=\"audio/*\" multiple required />
-          <button type=\"submit\">Upload</button>
-        </form>
-
-        <div class=\"controls\">
-          <div class=\"control\">
-            <label for=\"sort_date\">Sort</label>
-            <select id=\"sort_date\">
-              <option value=\"date_desc\" selected>Newest</option>
-              <option value=\"date_asc\">Oldest</option>
-            </select>
-          </div>
-          <div class=\"control\">
-            <label for=\"sort_size\">Size Sort</label>
-            <select id=\"sort_size\">
-              <option value=\"none\" selected>None</option>
-              <option value=\"size_desc\">Large → Small</option>
-              <option value=\"size_asc\">Small → Large</option>
-            </select>
-          </div>
-          <div class=\"control\">
-            <label for=\"sort_name\">Name Sort</label>
-            <select id=\"sort_name\">
-              <option value=\"none\" selected>None</option>
-              <option value=\"name_asc\">A → Z</option>
-              <option value=\"name_desc\">Z → A</option>
-            </select>
-          </div>
-          
-        </div>
-
-        <div class=\"search-bar\">
-          <span style=\"opacity:.8\">Search:</span>
-          <input id=\"search_input\" type=\"search\" placeholder=\"Type to search files...\" />
-        </div>
-
-        <div class=\"table-wrap\">
-          <table id=\"files_table\">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Down</th>
-                <th>Size</th>
-                <th>Date</th>
-                <th>Label</th>
-                <th>Speaker</th>
-                <th>Language</th>
-                <th>Gender</th>
-                <th>Verify</th>
-              </tr>
-            </thead>
-            <tbody id=\"files_tbody\">
-              {table_rows}
-            </tbody>
-          </table>
-        <div class=\"pagination-bar\">
-          <label for=\"page_size\">Per page</label>
-          <select id=\"page_size\">
-            <option value=\"20\" selected>20</option>
-            <option value=\"40\">40</option>
-            <option value=\"60\">60</option>
-          </select>
-          <button type=\"button\" class=\"btn\" id=\"prev_page\">Prev</button>
-          <button type=\"button\" class=\"btn\" id=\"next_page\">Next</button>
-          <span id=\"page_info\"></span>
-        </div>
-      </section>
-    </div>
-    <footer>
-      <small>Tip: Use the search above to quickly filter by name.</small>
-    </footer>
-  </div>
-
-  <script>
-    const $ = (s, root=document) => root.querySelector(s);
-    const $$ = (s, root=document) => Array.from(root.querySelectorAll(s));
-
-    const tbody = $('#files_tbody');
-    const sortDate = $('#sort_date');
-    const sortSize = $('#sort_size');
-    const sortName = $('#sort_name');
-    const searchInput = $('#search_input');
-    const pageSizeSel = $('#page_size');
-    const prevBtn = $('#prev_page');
-    const nextBtn = $('#next_page');
-    const pageInfo = $('#page_info');
-    const audio = new Audio();
-    let currentPlayingRow = null;
-
-    function getRows() {{ return $$('.file-row', tbody); }}
-
-    function matchesFilters(row) {{
-      const name = row.dataset.name.toLowerCase();
-      const bs = searchInput.value.trim().toLowerCase();
-      if (bs && !name.includes(bs)) return false;
-      return true;
-    }}
-
-    function sortRows(rows) {{
-      // Determine which sort to apply based on dropdowns
-      const vDate = sortDate ? sortDate.value : 'date_desc';
-      const vSize = sortSize ? sortSize.value : 'none';
-      const vName = sortName ? sortName.value : 'none';
-      let mode = 'date_desc';
-      if (vDate && vDate !== 'none') mode = vDate;
-      else if (vSize && vSize !== 'none') mode = vSize;
-      else if (vName && vName !== 'none') mode = vName;
-      const cmp = (a, b) => {{
-        const an = a.dataset.name.toLowerCase();
-        const bn = b.dataset.name.toLowerCase();
-        const asz = Number(a.dataset.size);
-        const bsz = Number(b.dataset.size);
-        const at = Number(a.dataset.time);
-        const bt = Number(b.dataset.time);
-        switch (mode) {{
-          case 'date_asc': return at - bt;
-          case 'name_asc': return an.localeCompare(bn);
-          case 'name_desc': return bn.localeCompare(an);
-          case 'size_asc': return asz - bsz;
-          case 'size_desc': return bsz - asz;
-          case 'date_desc':
-          default: return bt - at;
-        }}
-      }};
-      rows.sort(cmp);
-    }}
-
-    let currentPage = 1;
-    function renderPage(rows) {{
-      const ps = Number(pageSizeSel ? pageSizeSel.value : 20) || 20;
-      const total = rows.length;
-      const pages = Math.max(1, Math.ceil(total / ps));
-      if (currentPage > pages) currentPage = pages;
-      const start = (currentPage - 1) * ps;
-      const end = start + ps;
-      rows.forEach((r, i) => {{ r.style.display = (i >= start && i < end) ? '' : 'none'; }});
-      if (pageInfo) pageInfo.textContent = `Page ${{currentPage}} of ${{pages}} (${{total}} files)`;
-      if (prevBtn) prevBtn.disabled = currentPage <= 1;
-      if (nextBtn) nextBtn.disabled = currentPage >= pages;
-    }}
-
-    function apply() {{
-      const all = getRows();
-      const filtered = all.filter(matchesFilters);
-      sortRows(filtered);
-      // Rebuild tbody in sorted and filtered order
-      const frag = document.createDocumentFragment();
-      filtered.forEach(r => frag.appendChild(r));
-      tbody.appendChild(frag);
-      renderPage(filtered);
-    }}
-
-    // Toggle verify button
-    tbody.addEventListener('click', (e) => {{
-      const btn = e.target.closest('.btn-verify');
-      if (!btn) return;
-      const filename = btn.dataset.filename;
-      const current = btn.getAttribute('data-verified') === 'true';
-      const next = !current;
-      fetch('/verify', {{
-        method: 'POST',
-        headers: {{ 'Content-Type': 'application/json' }},
-        body: JSON.stringify({{ filename, verified: next }})
-      }})
-      .then(r => r.ok ? r.json() : Promise.reject())
-      .then(data => {{
-        const state = data && data.verified ? 'true' : 'false';
-        btn.setAttribute('data-verified', state);
-        btn.textContent = (state === 'true') ? 'Verified' : 'Verify';
-      }})
-      .catch(() => {{ /* ignore */ }});
-    }});
-
-    // Language dropdown change
-    tbody.addEventListener('change', (e) => {{
-      const langSel = e.target.closest('.lang-select');
-      if (langSel) {{
-        const filename = langSel.dataset.filename;
-        const lang = langSel.value;
-        fetch('/lang', {{
-          method: 'POST',
-          headers: {{ 'Content-Type': 'application/json' }},
-          body: JSON.stringify({{ filename, lang }})
-        }}).catch(() => {{}});
-        return;
-      }}
-      const genderSel = e.target.closest('.gender-select');
-      if (genderSel) {{
-        const filename = genderSel.dataset.filename;
-        const gender = genderSel.value;
-        fetch('/gender', {{
-          method: 'POST',
-          headers: {{ 'Content-Type': 'application/json' }},
-          body: JSON.stringify({{ filename, gender }})
-        }}).catch(() => {{}});
-        return;
-      }}
-    }});
-
-    // Speaker dropdown picker
-    tbody.addEventListener('click', (e) => {{
-      const btn = e.target.closest('.btn-speaker');
-      if (!btn) return;
-      const td = btn.closest('td');
-      const span = td.querySelector('.speaker-text');
-      const filename = span.dataset.filename;
-      // Gather existing speakers from table
-      const options = Array.from(document.querySelectorAll('.speaker-text'))
-        .map(x => x.textContent.trim())
-        .filter(v => v && v.toLowerCase() !== 'none');
-      const uniq = Array.from(new Set(options));
-      const sel = document.createElement('select');
-      sel.className = 'label-input';
-      const noneOpt = document.createElement('option');
-      noneOpt.value = '';
-      noneOpt.textContent = 'None';
-      sel.appendChild(noneOpt);
-      uniq.forEach(v => {{ const o = document.createElement('option'); o.value = v; o.textContent = v; sel.appendChild(o); }});
-      td.insertBefore(sel, btn);
-      sel.addEventListener('change', () => {{
-        const value = sel.value.trim();
-        fetch('/speaker', {{
-          method: 'POST',
-          headers: {{ 'Content-Type': 'application/json' }},
-          body: JSON.stringify({{ filename, speaker: value }})
-        }})
-        .then(r => r.ok ? r.json() : Promise.reject())
-        .then(data => {{ span.textContent = (data && data.speaker) || 'None'; }})
-        .finally(() => sel.remove());
-      }});
-      sel.focus();
-    }});
-
-    // Click file name to play/pause
-    tbody.addEventListener('click', (e) => {{
-      const link = e.target.closest('.file-link');
-      if (!link) return;
-      e.preventDefault();
-      const row = link.closest('tr');
-      const nameCell = row.querySelector('.name');
-      const filename = link.dataset.filename;
-      const src = `/stream/${{encodeURIComponent(filename)}}`;
-      const isSame = audio.src.endsWith(encodeURIComponent(filename));
-      if (isSame && !audio.paused) {{
-        audio.pause();
-        nameCell.classList.remove('playing');
-        return;
-      }}
-      if (currentPlayingRow) currentPlayingRow.querySelector('.name').classList.remove('playing');
-      audio.src = src;
-      audio.play().then(() => {{
-        nameCell.classList.add('playing');
-        currentPlayingRow = row;
-      }}).catch(() => {{}});
-    }});
-
-    // Inline edit: double-click label to edit and save
-    tbody.addEventListener('dblclick', (e) => {{
-      // label editing
-      const lspan = e.target.closest('.label-text');
-      if (lspan) {{
-        const td = lspan.parentElement;
-        const filename = lspan.dataset.filename;
-        const current = lspan.textContent === 'None' ? '' : lspan.textContent;
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.value = current;
-        input.className = 'label-input';
-        input.maxLength = 200;
-        td.replaceChild(input, lspan);
-        input.focus();
-        input.select();
-
-        const restore = (text) => {{
-          const s = document.createElement('span');
-          s.className = 'label-text';
-          s.dataset.filename = filename;
-          s.textContent = text || 'None';
-          td.replaceChild(s, input);
-        }};
-
-        const commit = () => {{
-          const value = input.value.trim();
-          fetch('/label', {{
-            method: 'POST',
-            headers: {{ 'Content-Type': 'application/json' }},
-            body: JSON.stringify({{ filename, label: value }})
-          }})
-          .then(r => r.ok ? r.json() : Promise.reject())
-          .then(data => restore((data && data.label) || 'None'))
-          .catch(() => restore(current));
-        }};
-
-        input.addEventListener('keydown', (ev) => {{
-          if (ev.key === 'Enter') commit();
-          if (ev.key === 'Escape') restore(current);
-        }});
-        input.addEventListener('blur', commit);
-        return;
-      }}
-      // speaker editing
-      const sspan = e.target.closest('.speaker-text');
-      if (sspan) {{
-        const td = sspan.parentElement;
-        const filename = sspan.dataset.filename;
-        const current = sspan.textContent === 'None' ? '' : sspan.textContent;
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.value = current;
-        input.className = 'label-input';
-        input.maxLength = 200;
-        td.insertBefore(input, sspan);
-        td.removeChild(sspan);
-        input.focus();
-        input.select();
-        const restore = (text) => {{
-          const s = document.createElement('span');
-          s.className = 'speaker-text';
-          s.dataset.filename = filename;
-          s.textContent = text || 'None';
-          td.insertBefore(s, td.firstChild);
-          if (input && input.parentElement) input.parentElement.removeChild(input);
-        }};
-        const commit = () => {{
-          const value = input.value.trim();
-          fetch('/speaker', {{
-            method: 'POST',
-            headers: {{ 'Content-Type': 'application/json' }},
-            body: JSON.stringify({{ filename, speaker: value }})
-          }})
-          .then(r => r.ok ? r.json() : Promise.reject())
-          .then(data => restore((data && data.speaker) || 'None'))
-          .catch(() => restore(current));
-        }};
-        input.addEventListener('keydown', (ev) => {{
-          if (ev.key === 'Enter') commit();
-          if (ev.key === 'Escape') restore(current);
-        }});
-        input.addEventListener('blur', commit);
-        return;
-      }}
-    }});
-
-    audio.addEventListener('ended', () => {{
-      if (currentPlayingRow) currentPlayingRow.querySelector('.name').classList.remove('playing');
-      currentPlayingRow = null;
-    }});
-
-    [sortDate, sortSize, sortName, searchInput].forEach(el => {{
-      el && el.addEventListener('input', apply);
-      el && el.addEventListener('change', apply);
-    }});
-    if (pageSizeSel) pageSizeSel.addEventListener('change', () => {{ currentPage = 1; apply(); }});
-    if (prevBtn) prevBtn.addEventListener('click', () => {{ currentPage = Math.max(1, currentPage - 1); apply(); }});
-    if (nextBtn) nextBtn.addEventListener('click', () => {{ currentPage = currentPage + 1; apply(); }});
-
-    // Initial apply to enforce default sort
-    apply();
-  </script>
-</body>
-</html>
-"""
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "app_title": APP_TITLE,
+            "files": files,
+            "stats_text": stats_text,
+            "speakers_json": json.dumps(speakers_list, ensure_ascii=False),
+            "speakers": speakers_list,
+        },
+    )
 
 
 @app.post("/upload")
@@ -837,6 +412,8 @@ async def upload_outside(
         METADATA_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2))
     except Exception:
         pass
+    if spk:
+        _touch_speaker(spk)
 
     return {
         "ok": True,
@@ -888,14 +465,17 @@ async def set_label(payload: dict = Body(...)):
         entry_verified = bool(entry.get("verified") or False)
         entry_lang = str(entry.get("lang") or "Khmer")
         entry_gender = str(entry.get("gender") or "Male")
+        entry_speaker = str(entry.get("speaker") or "")
     elif isinstance(entry, str):
         entry_verified = False
         entry_lang = "Khmer"
         entry_gender = "Male"
+        entry_speaker = ""
     else:
         entry_verified = False
         entry_lang = "Khmer"
         entry_gender = "Male"
+        entry_speaker = ""
     # also refresh size/date fields
     stat = path.stat()
     mtime_iso = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
@@ -904,6 +484,7 @@ async def set_label(payload: dict = Body(...)):
         "verified": entry_verified,
         "lang": entry_lang,
         "gender": entry_gender,
+        "speaker": entry_speaker,
         "size_h": _human_size(stat.st_size),
         "size_bytes": stat.st_size,
         "mtime_iso": mtime_iso,
@@ -950,6 +531,8 @@ async def set_speaker(payload: dict = Body(...)):
         METADATA_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2))
     except Exception:
         return {"ok": False, "error": "Failed to write metadata"}
+    # Touch speaker MRU list
+    _touch_speaker(speaker)
     return {"ok": True, "speaker": speaker or "None"}
 
 
@@ -972,14 +555,17 @@ async def set_verified(payload: dict = Body(...)):
         entry_label = str(entry.get("label") or "")
         entry_lang = str(entry.get("lang") or "Khmer")
         entry_gender = str(entry.get("gender") or "Male")
+        entry_speaker = str(entry.get("speaker") or "")
     elif isinstance(entry, str):
         entry_label = entry
         entry_lang = "Khmer"
         entry_gender = "Male"
+        entry_speaker = ""
     else:
         entry_label = ""
         entry_lang = "Khmer"
         entry_gender = "Male"
+        entry_speaker = ""
     stat = path.stat()
     mtime_iso = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
     data[safe] = {
@@ -987,6 +573,7 @@ async def set_verified(payload: dict = Body(...)):
         "verified": bool(verified),
         "lang": entry_lang,
         "gender": entry_gender,
+        "speaker": entry_speaker,
         "size_h": _human_size(stat.st_size),
         "size_bytes": stat.st_size,
         "mtime_iso": mtime_iso,
@@ -1019,14 +606,17 @@ async def set_language(payload: dict = Body(...)):
         entry_label = str(entry.get("label") or "")
         entry_verified = bool(entry.get("verified") or False)
         entry_gender = str(entry.get("gender") or "Male")
+        entry_speaker = str(entry.get("speaker") or "")
     elif isinstance(entry, str):
         entry_label = entry
         entry_verified = False
         entry_gender = "Male"
+        entry_speaker = ""
     else:
         entry_label = ""
         entry_verified = False
         entry_gender = "Male"
+        entry_speaker = ""
     stat = path.stat()
     mtime_iso = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
     data[safe] = {
@@ -1034,10 +624,16 @@ async def set_language(payload: dict = Body(...)):
         "verified": entry_verified,
         "lang": lang,
         "gender": entry_gender,
+        "speaker": entry_speaker,
         "size_h": _human_size(stat.st_size),
         "size_bytes": stat.st_size,
         "mtime_iso": mtime_iso,
     }
+    try:
+        METADATA_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+    except Exception:
+        return {"ok": False, "error": "Failed to write metadata"}
+    return {"ok": True, "lang": lang}
 
 
 @app.post("/gender")
@@ -1061,14 +657,17 @@ async def set_gender(payload: dict = Body(...)):
         entry_label = str(entry.get("label") or "")
         entry_verified = bool(entry.get("verified") or False)
         entry_lang = str(entry.get("lang") or "Khmer")
+        entry_speaker = str(entry.get("speaker") or "")
     elif isinstance(entry, str):
         entry_label = entry
         entry_verified = False
         entry_lang = "Khmer"
+        entry_speaker = ""
     else:
         entry_label = ""
         entry_verified = False
         entry_lang = "Khmer"
+        entry_speaker = ""
     stat = path.stat()
     mtime_iso = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
     data[safe] = {
@@ -1076,6 +675,7 @@ async def set_gender(payload: dict = Body(...)):
         "verified": entry_verified,
         "lang": entry_lang,
         "gender": gender,
+        "speaker": entry_speaker,
         "size_h": _human_size(stat.st_size),
         "size_bytes": stat.st_size,
         "mtime_iso": mtime_iso,
@@ -1085,6 +685,17 @@ async def set_gender(payload: dict = Body(...)):
     except Exception:
         return {"ok": False, "error": "Failed to write metadata"}
     return {"ok": True, "gender": gender}
+
+
+@app.post("/speaker_add")
+async def speaker_add(payload: dict = Body(...)):
+    name = str(payload.get("name") or "").strip()
+    gender = str(payload.get("gender") or "").strip()
+    lang = str(payload.get("lang") or "").strip()
+    if not name:
+        return {"ok": False, "error": "Missing name"}
+    _touch_speaker_with_meta(name, gender, lang)
+    return {"ok": True}
     try:
         METADATA_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2))
     except Exception:

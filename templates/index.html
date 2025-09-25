@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ app_title }}</title>
+  <link rel="icon" type="image/png" href="/static/chlat.png" />
+  <style>
+    :root {
+      --bg: #0f172a;        /* slate-900 */
+      --panel: #111827;     /* gray-900 */
+      --panel-2: #0b1220;   /* darker */
+      --text: #e5e7eb;      /* gray-200 */
+      --muted: #9ca3af;     /* gray-400 */
+      --primary: #22d3ee;   /* cyan-400 */
+      --accent: #8b5cf6;    /* violet-500 */
+      --ok: #10b981;        /* emerald-500 */
+      --warn: #f59e0b;      /* amber-500 */
+      --danger: #ef4444;    /* red-500 */
+      --border: #1f2937;    /* gray-800 */
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; background: linear-gradient(180deg, var(--bg), var(--panel-2)); color: var(--text); }
+    header { padding: 24px 16px 8px; text-align: center; }
+    header h1 { margin: 0; font-size: 24px; letter-spacing: 0.4px; display:inline-flex; align-items:center; gap:10px; }
+    header p { margin: 6px 0 0; color: var(--muted); }
+    .logo { width:40px; height:40px; border-radius:8px; object-fit:contain; background: transparent; display:inline-block; }
+
+    .container { max-width: 1400px; margin: 0 auto; padding: 16px; padding-bottom: 5vh; }
+
+    .card { background: rgba(17,24,39,0.8); border: 1px solid var(--border); border-radius: 12px; padding: 16px; box-shadow: 0 6px 24px rgba(0,0,0,0.3); width: 100%; max-width: 1280px; margin-left:auto; margin-right:auto; }
+    .row { display: grid; grid-template-columns: 1fr; gap: 28px; justify-items: center; }
+    @media (max-width: 900px) { .row { grid-template-columns: 1fr; } }
+
+    /* Upload */
+    .upload { display: flex; align-items: center; gap: 12px; background: linear-gradient(135deg, rgba(34,211,238,0.08), rgba(139,92,246,0.08)); border: 1px dashed rgba(34,211,238,0.35); padding: 16px; border-radius: 10px; }
+    .upload input[type=file] { flex: 1; padding: 10px; color: var(--text); background: #0b1220; border: 1px solid var(--border); border-radius: 8px; }
+    .upload button { padding: 10px 14px; border: 0; border-radius: 8px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #04121a; font-weight: 700; cursor: pointer; transition: transform .05s ease; }
+    .upload button:hover { transform: translateY(-1px); }
+
+    /* Controls */
+    .controls { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 14px; }
+    @media (max-width: 900px) { .controls { grid-template-columns: 1fr; } }
+    .control label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+    .control input, .control select { width: 100%; background: #0b1220; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
+    .lang-select, .gender-select, .speaker-select { background: #0b1220; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 6px; }
+
+    /* Table */
+    .table-wrap { overflow: auto; border: 1px solid var(--border); border-radius: 10px; margin-top: 12px; max-height: 65vh; }
+    .table-wrap::-webkit-scrollbar { width: 8px; height: 8px; }
+    .table-wrap::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.35); border-radius: 8px; }
+    .table-wrap::-webkit-scrollbar-track { background: rgba(2,6,23,0.4); }
+    .table-wrap { scrollbar-width: thin; scrollbar-color: rgba(148,163,184,0.35) rgba(2,6,23,0.4); }
+    table { width: 100%; border-collapse: collapse; min-width: 1000px; }
+    th, td { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+    thead th { position: sticky; top: 0; background: #0b1220; color: var(--muted); text-align: left; font-weight: 600; font-size: 13px; }
+    tbody tr:hover { background: rgba(34,211,238,0.06); }
+    td.name a { color: var(--primary); text-decoration: none; }
+    td.name a:hover { text-decoration: underline; }
+    td.empty { text-align: center; color: var(--muted); padding: 28px; }
+
+    /* Search bar */
+    .search-bar { margin-top: 14px; background: rgba(11,18,32,0.92); border: 1px solid var(--border); border-radius: 10px; backdrop-filter: blur(6px); padding: 12px; display: flex; gap: 10px; align-items: center; }
+    .search-bar input { flex: 1; background: #0b1220; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+    .label-text { cursor: text; padding: 2px 6px; border-radius: 6px; }
+    .label-text:hover { background: rgba(139,92,246,0.15); }
+    .label-input { width: 100%; background: #0b1220; color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px; }
+    .btn { font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); background: #0b1220; color: var(--text); cursor: pointer; }
+    .btn-verify[data-verified="true"] { background: rgba(16,185,129,0.15); border-color: rgba(16,185,129,0.5); color: #10b981; }
+    .btn-verify[data-verified="false"] { background: rgba(139,92,246,0.15); border-color: rgba(139,92,246,0.5); color: #8b5cf6; }
+    .btn-download { background: rgba(34,211,238,0.15); border-color: rgba(34,211,238,0.5); color: #22d3ee; text-decoration: none; display: inline-block; }
+    .btn-small { padding: 2px 6px; font-size: 12px; }
+    /* Make + Speaker button a bit taller and add hover feedback */
+    #add_speaker_btn {
+      padding-top: 6px; padding-bottom: 6px;
+      transition: background-color .12s ease, border-color .12s ease, transform .06s ease;
+    }
+    #add_speaker_btn:hover {
+      background: rgba(139,92,246,0.2);
+      border-color: rgba(139,92,246,0.6);
+      color: #c4b5fd;
+      transform: translateY(-1px);
+    }
+    #add_speaker_btn:focus-visible {
+      outline: 2px solid rgba(139,92,246,0.6);
+      outline-offset: 2px;
+    }
+    /* Modal action buttons hover feedback */
+    #modal_save_speaker {
+      transition: background-color .12s ease, border-color .12s ease, transform .06s ease;
+    }
+    #modal_save_speaker:hover {
+      background: rgba(16,185,129,0.2); /* emerald */
+      border-color: rgba(16,185,129,0.6);
+      color: #34d399;
+      transform: translateY(-1px);
+    }
+    #modal_cancel_speaker, #modal_cancel_speaker2 {
+      transition: background-color .12s ease, border-color .12s ease, transform .06s ease;
+    }
+    #modal_cancel_speaker:hover, #modal_cancel_speaker2:hover {
+      background: rgba(148,163,184,0.18); /* gray */
+      border-color: rgba(148,163,184,0.45);
+      color: #e5e7eb;
+      transform: translateY(-1px);
+    }
+    #modal_save_speaker:focus-visible, #modal_cancel_speaker:focus-visible, #modal_cancel_speaker2:focus-visible {
+      outline: 2px solid rgba(148,163,184,0.5);
+      outline-offset: 2px;
+    }
+    /* Modal */
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(2,6,23,0.6); display:flex; align-items:center; justify-content:center; }
+    .modal { background: #0b1220; border: 1px solid var(--border); border-radius: 12px; padding: 14px; width: 360px; max-width: 94vw; box-shadow: 0 12px 28px rgba(0,0,0,0.45); }
+    .btn-icon { padding: 2px 6px; font-size: 12px; background: rgba(139,92,246,0.15); border-color: rgba(139,92,246,0.5); color: #8b5cf6; }
+    .eq { display: none; margin-left: 8px; vertical-align: middle; }
+    .name.playing .eq { display: inline-flex; gap: 2px; }
+    .eq i { display: inline-block; width: 3px; height: 10px; background: var(--primary); animation: bounce 0.8s infinite ease-in-out; }
+    .eq i:nth-child(2) { animation-delay: 0.1s; }
+    .eq i:nth-child(3) { animation-delay: 0.2s; }
+    @keyframes bounce {
+      0%, 100% { transform: scaleY(0.4); opacity: 0.6; }
+      50% { transform: scaleY(1); opacity: 1; }
+    }
+    .pagination-bar { margin-top: 10px; display: flex; align-items: center; gap: 10px; color: var(--muted); justify-content: center; }
+    .pagination-bar .btn { padding: 6px 10px; }
+    .page-bottom { display:flex; flex-direction:column; align-items:center; gap:6px; margin: 8px 0 24px; }
+    .badge { display: inline-block; background: rgba(34,211,238,0.1); color: var(--primary); border: 1px solid rgba(34,211,238,0.3); font-size: 12px; padding: 2px 8px; border-radius: 999px; }
+    .meta { color: var(--muted); margin: 4px 0 0; font-size: 13px; }
+    .speaker { position: relative; }
+    .speaker .ac-list { position: absolute; z-index: 20; background: #0b1220; border: 1px solid var(--border); border-radius: 8px; margin-top: 4px; max-height: 220px; overflow: auto; width: 280px; box-shadow: 0 6px 24px rgba(0,0,0,0.3); }
+    .speaker .ac-item { padding: 6px 8px; cursor: pointer; }
+    .speaker .ac-item:hover, .speaker .ac-item.active { background: rgba(34,211,238,0.15); }
+    footer { text-align: center; color: var(--muted); padding: 16px 0; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1><img class="logo" src="/static/chlat.png" alt="logo" />{{ app_title }}</h1>
+    <p>"Data is the foundation of Deep Learning, no data no Deep Learning"</p>
+    
+  </header>
+  <div class="container">
+    <div class="row">
+      <section class="card">
+        <form class="upload" action="/upload" method="post" enctype="multipart/form-data">
+          <input type="file" name="files" id="file" accept="audio/*" multiple required />
+          <button type="submit">Upload</button>
+        </form>
+
+        <div class="controls">
+          <div class="control">
+            <label for="sort_date">Sort</label>
+            <select id="sort_date">
+              <option value="date_desc" selected>Newest</option>
+              <option value="date_asc">Oldest</option>
+            </select>
+          </div>
+          <div class="control">
+            <label for="filter_verified">Verified</label>
+            <select id="filter_verified">
+              <option value="all" selected>None</option>
+              <option value="verified">Verified</option>
+              <option value="unverified">Not Verified</option>
+            </select>
+          </div>
+          <div class="control">
+            <label for="sort_size">Size Sort</label>
+            <select id="sort_size">
+              <option value="none" selected>None</option>
+              <option value="size_desc">Large → Small</option>
+              <option value="size_asc">Small → Large</option>
+            </select>
+          </div>
+          <div class="control">
+            <label for="sort_name">Name Sort</label>
+            <select id="sort_name">
+              <option value="none" selected>None</option>
+              <option value="name_asc">A → Z</option>
+              <option value="name_desc">Z → A</option>
+            </select>
+          </div>
+          
+          
+        </div>
+
+        <!-- Inline add speaker panel removed; using modal popup instead -->
+      </section>
+      <section class="card">
+        <div class="search-bar">
+          <span style="opacity:.8">Search:</span>
+          <input id="search_input" type="search" placeholder="Type to search files..." />
+          <button type="button" class="btn btn-small" id="add_speaker_btn">+ Speaker</button>
+        </div>
+        <div class="table-wrap">
+          <table id="files_table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Down</th>
+                <th>Size</th>
+                <th>Date</th>
+                <th>Label</th>
+                <th>Speaker</th>
+                <th>Language</th>
+                <th>Gender</th>
+                <th>Verify</th>
+              </tr>
+            </thead>
+            <tbody id="files_tbody">
+              {% if files and files|length > 0 %}
+                {% for f in files %}
+                {% set display_label = f.label if f.label else 'None' %}
+                {% set verified = f.verified %}
+                {% set v_text = 'Verified' if verified else 'Verify' %}
+                {% set v_state = 'true' if verified else 'false' %}
+                {% set lang = f.lang or 'Khmer' %}
+                {% set gender = f.gender or 'Male' %}
+                <tr class="file-row" data-name="{{ f.name }}" data-size="{{ f.size }}" data-time="{{ f.mtime|int }}" data-verified="{{ v_state }}">
+                  <td class="name">
+                    <a class="file-link" href="#" data-filename="{{ f.name }}">{{ f.name }}</a>
+                    <span class="eq" aria-hidden="true"><i></i><i></i><i></i></span>
+                  </td>
+                  <td class="down"><a class="btn btn-download btn-small" href="/download/{{ f.name }}" download title="Download" aria-label="Download">⬇</a></td>
+                  <td class="size">{{ f.size_h }}</td>
+                  <td class="date">{{ f.mtime_iso }}</td>
+                  <td class="label"><span class="label-text" data-filename="{{ f.name }}">{{ display_label }}</span></td>
+                  <td class="speaker">
+                    <select class="speaker-select" data-filename="{{ f.name }}">
+                      {% set current_sp = f.speaker or '' %}
+                      <option value=""{% if not current_sp %} selected{% endif %}>None</option>
+                      {% if current_sp and (current_sp not in speakers) %}
+                        <option value="{{ current_sp }}" selected>{{ current_sp }}</option>
+                      {% endif %}
+                      {% for sp in speakers %}
+                        <option value="{{ sp }}"{% if sp == current_sp %} selected{% endif %}>{{ sp }}</option>
+                      {% endfor %}
+                    </select>
+                  </td>
+                  <td class="lang"><select class="lang-select" data-filename="{{ f.name }}">
+                    <option value="Khmer"{% if lang == 'Khmer' %} selected{% endif %}>Khmer</option>
+                    <option value="English"{% if lang == 'English' %} selected{% endif %}>English</option>
+                    <option value="Mix-Both"{% if lang == 'Mix-Both' %} selected{% endif %}>Mix-Both</option>
+                  </select></td>
+                  <td class="gender"><select class="gender-select" data-filename="{{ f.name }}">
+                    <option value="Male"{% if gender == 'Male' %} selected{% endif %}>Male</option>
+                    <option value="Female"{% if gender == 'Female' %} selected{% endif %}>Female</option>
+                  </select></td>
+                  <td class="verify"><button class="btn btn-verify" data-filename="{{ f.name }}" data-verified="{{ v_state }}">{{ v_text }}</button></td>
+                </tr>
+                {% endfor %}
+              {% else %}
+                <tr><td colspan="9" class="empty">No files uploaded yet.</td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+      </section>
+    </div>
+    <div id="modal_speaker" class="modal-backdrop" style="display:none;">
+      <div class="modal">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;"><strong>Add Speaker</strong><button class="btn btn-small" id="modal_cancel_speaker">✕</button></div>
+        <input id="modal_speaker_name" type="text" class="label-input" placeholder="e.g. Tester 1" />
+        <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:10px;">
+          <button class="btn" id="modal_save_speaker">Save</button>
+          <button class="btn" id="modal_cancel_speaker2">Cancel</button>
+        </div>
+      </div>
+    </div>
+    <div class="page-bottom">
+      <div class="pagination-bar">
+        <label for="page_size">Per page</label>
+        <select id="page_size">
+          <option value="20" selected>20</option>
+          <option value="40">40</option>
+          <option value="60">60</option>
+        </select>
+        <button type="button" class="btn" id="prev_page">Prev</button>
+        <button type="button" class="btn" id="next_page">Next</button>
+        <span id="page_info"></span>
+      </div>
+      <div class="meta">{{ stats_text }}</div>
+    </div>
+    <footer>
+      <small></small>
+    </footer>
+  </div>
+
+  <script>
+    const $ = (s, root=document) => root.querySelector(s);
+    const $$ = (s, root=document) => Array.from(root.querySelectorAll(s));
+    const SPEAKERS = {{ speakers_json | safe }};
+
+    const tbody = $('#files_tbody');
+    const sortDate = $('#sort_date');
+    const sortSize = $('#sort_size');
+    const sortName = $('#sort_name');
+    const filterVerified = $('#filter_verified');
+    const searchInput = $('#search_input');
+    const pageSizeSel = $('#page_size');
+    const prevBtn = $('#prev_page');
+    const nextBtn = $('#next_page');
+    const pageInfo = $('#page_info');
+    const audio = new Audio();
+    let currentPlayingRow = null;
+
+    function getRows() { return $$('.file-row', tbody); }
+
+    function matchesFilters(row) {
+      const name = row.dataset.name.toLowerCase();
+      const bs = searchInput.value.trim().toLowerCase();
+      if (bs && !name.includes(bs)) return false;
+      // verified filter
+      if (filterVerified) {
+        const fv = filterVerified.value;
+        if (fv === 'verified' && row.dataset.verified !== 'true') return false;
+        if (fv === 'unverified' && row.dataset.verified !== 'false') return false;
+      }
+      return true;
+    }
+
+    function sortRows(rows) {
+      // Determine which sort to apply based on dropdowns
+      const vDate = sortDate ? sortDate.value : 'date_desc';
+      const vSize = sortSize ? sortSize.value : 'none';
+      const vName = sortName ? sortName.value : 'none';
+      let mode = 'date_desc';
+      if (vDate && vDate !== 'none') mode = vDate;
+      else if (vSize && vSize !== 'none') mode = vSize;
+      else if (vName && vName !== 'none') mode = vName;
+      const cmp = (a, b) => {
+        const an = a.dataset.name.toLowerCase();
+        const bn = b.dataset.name.toLowerCase();
+        const asz = Number(a.dataset.size);
+        const bsz = Number(b.dataset.size);
+        const at = Number(a.dataset.time);
+        const bt = Number(b.dataset.time);
+        switch (mode) {
+          case 'date_asc': return at - bt;
+          case 'name_asc': return an.localeCompare(bn);
+          case 'name_desc': return bn.localeCompare(an);
+          case 'size_asc': return asz - bsz;
+          case 'size_desc': return bsz - asz;
+          case 'date_desc':
+          default: return bt - at;
+        }
+      };
+      rows.sort(cmp);
+    }
+
+    let currentPage = 1;
+    function renderPage(rows) {
+      const ps = Number(pageSizeSel ? pageSizeSel.value : 20) || 20;
+      const total = rows.length;
+      const pages = Math.max(1, Math.ceil(total / ps));
+      if (currentPage > pages) currentPage = pages;
+      const start = (currentPage - 1) * ps;
+      const end = start + ps;
+      rows.forEach((r, i) => { r.style.display = (i >= start && i < end) ? '' : 'none'; });
+      if (pageInfo) pageInfo.textContent = `Page ${currentPage} of ${pages} (${total} files)`;
+      if (prevBtn) prevBtn.disabled = currentPage <= 1;
+      if (nextBtn) nextBtn.disabled = currentPage >= pages;
+    }
+
+    function apply() {
+      const all = getRows();
+      const filtered = all.filter(matchesFilters);
+      sortRows(filtered);
+      // Rebuild tbody in sorted and filtered order
+      const frag = document.createDocumentFragment();
+      filtered.forEach(r => frag.appendChild(r));
+      tbody.appendChild(frag);
+      renderPage(filtered);
+    }
+
+    // Toggle verify button
+    tbody.addEventListener('click', (e) => {
+      const btn = e.target.closest('.btn-verify');
+      if (!btn) return;
+      const filename = btn.dataset.filename;
+      const current = btn.getAttribute('data-verified') === 'true';
+      const next = !current;
+      fetch('/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename, verified: next })
+      })
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(data => {
+        const state = data && data.verified ? 'true' : 'false';
+        btn.setAttribute('data-verified', state);
+        btn.textContent = (state === 'true') ? 'Verified' : 'Verify';
+      })
+      .catch(() => { /* ignore */ });
+    });
+
+    // Dropdown changes
+    tbody.addEventListener('change', (e) => {
+      const speakerSel = e.target.closest('.speaker-select');
+      if (speakerSel) {
+        const filename = speakerSel.dataset.filename;
+        const speaker = speakerSel.value;
+        fetch('/speaker', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename, speaker })
+        }).catch(() => {});
+        return;
+      }
+      const langSel = e.target.closest('.lang-select');
+      if (langSel) {
+        const filename = langSel.dataset.filename;
+        const lang = langSel.value;
+        fetch('/lang', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename, lang })
+        }).catch(() => {});
+        return;
+      }
+      const genderSel = e.target.closest('.gender-select');
+      if (genderSel) {
+        const filename = genderSel.dataset.filename;
+        const gender = genderSel.value;
+        fetch('/gender', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename, gender })
+        }).catch(() => {});
+        return;
+      }
+    });
+
+    // Add speaker via modal
+    const addBtn = $('#add_speaker_btn');
+    // Modal for adding speaker (name only)
+    const modal = document.getElementById('modal_speaker');
+    const modalName = document.getElementById('modal_speaker_name');
+    const modalSave = document.getElementById('modal_save_speaker');
+    const modalCancel = document.getElementById('modal_cancel_speaker');
+    const modalCancel2 = document.getElementById('modal_cancel_speaker2');
+    function openSpeakerModal() { if (modal) { modal.style.display='flex'; if (modalName) { modalName.value=''; setTimeout(()=>modalName.focus(),0); } } }
+    function closeSpeakerModal() { if (modal) modal.style.display='none'; }
+    if (addBtn) { addBtn.addEventListener('click', openSpeakerModal); }
+    if (modalCancel) modalCancel.addEventListener('click', closeSpeakerModal);
+    if (modalCancel2) modalCancel2.addEventListener('click', closeSpeakerModal);
+    if (modal) modal.addEventListener('click', (e)=>{ if (e.target===modal) closeSpeakerModal(); });
+    if (modalSave) modalSave.addEventListener('click', async ()=>{
+      const name = (modalName && modalName.value || '').trim();
+      if (!name) { closeSpeakerModal(); return; }
+      try { await fetch('/speaker_add', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name }) }); } catch {}
+      // Update global list and dropdowns
+      if (Array.isArray(SPEAKERS)) {
+        const i = SPEAKERS.indexOf(name);
+        if (i>=0) SPEAKERS.splice(i,1);
+        SPEAKERS.unshift(name); SPEAKERS.splice(100);
+      }
+      $$('.speaker-select').forEach(sel => {
+        if (![...sel.options].some(o => o.value === name)) {
+          const opt = document.createElement('option'); opt.value = name; opt.textContent = name;
+          const noneOpt = [...sel.options].find(o => o.value === '');
+          if (noneOpt && noneOpt.nextSibling) sel.insertBefore(opt, noneOpt.nextSibling);
+          else if (noneOpt) sel.appendChild(opt);
+          else sel.insertBefore(opt, sel.firstChild);
+        }
+      });
+      closeSpeakerModal();
+    });
+
+    // Removed inline add speaker panel; use modal only
+
+    // Click file name to play/pause
+    tbody.addEventListener('click', (e) => {
+      const link = e.target.closest('.file-link');
+      if (!link) return;
+      e.preventDefault();
+      const row = link.closest('tr');
+      const nameCell = row.querySelector('.name');
+      const filename = link.dataset.filename;
+      const src = `/stream/${encodeURIComponent(filename)}`;
+      const isSame = audio.src.endsWith(encodeURIComponent(filename));
+      if (isSame && !audio.paused) {
+        audio.pause();
+        nameCell.classList.remove('playing');
+        return;
+      }
+      if (currentPlayingRow) currentPlayingRow.querySelector('.name').classList.remove('playing');
+      audio.src = src;
+      audio.play().then(() => {
+        nameCell.classList.add('playing');
+        currentPlayingRow = row;
+      }).catch(() => {});
+    });
+
+    // Inline edit: double-click label to edit and save
+    tbody.addEventListener('dblclick', (e) => {
+      // label editing
+      const lspan = e.target.closest('.label-text');
+      if (lspan) {
+        const td = lspan.parentElement;
+        const filename = lspan.dataset.filename;
+        const current = lspan.textContent === 'None' ? '' : lspan.textContent;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = current;
+        input.className = 'label-input';
+        input.maxLength = 200;
+        td.replaceChild(input, lspan);
+        input.focus();
+        input.select();
+
+        const restore = (text) => {
+          const s = document.createElement('span');
+          s.className = 'label-text';
+          s.dataset.filename = filename;
+          s.textContent = text || 'None';
+          td.replaceChild(s, input);
+        };
+
+        const commit = () => {
+          const value = input.value.trim();
+          fetch('/label', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename, label: value })
+          })
+          .then(r => r.ok ? r.json() : Promise.reject())
+          .then(data => restore((data && data.label) || 'None'))
+          .catch(() => restore(current));
+        };
+
+        input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') commit(); if (ev.key === 'Escape') restore(current); });
+        input.addEventListener('blur', commit);
+        return;
+      }
+      // speaker editing removed: handled via dropdown .speaker-select
+    });
+
+    audio.addEventListener('ended', () => {
+      if (currentPlayingRow) currentPlayingRow.querySelector('.name').classList.remove('playing');
+      currentPlayingRow = null;
+    });
+
+    [sortDate, sortSize, sortName, searchInput, filterVerified].forEach(el => {
+      el && el.addEventListener('input', apply);
+      el && el.addEventListener('change', apply);
+    });
+    if (pageSizeSel) pageSizeSel.addEventListener('change', () => { currentPage = 1; apply(); });
+    if (prevBtn) prevBtn.addEventListener('click', () => { currentPage = Math.max(1, currentPage - 1); apply(); });
+    if (nextBtn) nextBtn.addEventListener('click', () => { currentPage = currentPage + 1; apply(); });
+
+    // Initial apply to enforce default sort
+    apply();
+  </script>
+</body>
+</html>

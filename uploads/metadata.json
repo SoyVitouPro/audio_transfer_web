@@ -1,8 +1,12 @@
 {
   "000001.ogg": {
     "label": "បញ្ចូលកាតទូរសព្ទប្រាំដុល្លារ",
-    "verified": false,
+    "verified": true,
     "lang": "Khmer",
-    "gender": "Male"
+    "gender": "Male",
+    "speaker": "Kimsong",
+    "size_h": "0.01 KB",
+    "size_bytes": 11127,
+    "mtime_iso": "2025-09-25 08:57:05"
   }
 }
